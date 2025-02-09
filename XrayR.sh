@@ -4,7 +4,7 @@ clear
 
 # Hỏi thông tin chung
 echo ""
-read -p "  Nhập domain web (không cần https://): " api_host
+read -p "  Nhập domain web (Bản Quyền 4gquocte.com không cần https://): " api_host
 [ -z "${api_host}" ] && { echo "  Domain không được để trống."; exit 1; }
 read -p "  Nhập key của web: " api_key
 [ -z "${api_key}" ] && { echo "  Key không được để trống."; exit 1; }
@@ -148,7 +148,7 @@ EOF
 }
 
 # Cài đặt XrayR và cấu hình
-bash <(curl -Ls https://raw.githubusercontent.com/qtai2901/XrayR-release/main/install.sh)
+bash <(curl -Ls https://github.com/syxiec/XrayR-release/main/install.sh)
 openssl req -newkey rsa:2048 -x509 -sha256 -days 365 -nodes -out /etc/XrayR/443.crt -keyout /etc/XrayR/443.key -subj "/C=JP/ST=Tokyo/L=Chiyoda-ku/O=Google Trust Services LLC/CN=google.com"
 cd /etc/XrayR
 cat >config.yml <<EOF
