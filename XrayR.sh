@@ -1,5 +1,3 @@
-
-
 # Hỏi thông tin chung
 echo ""
 read -p "  Nhập domain web (Bản Quyền 4gquocte.com không cần https://): " api_host
