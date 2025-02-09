@@ -144,7 +144,7 @@ EOF
 }
 # Cài đặt XrayR (sử dụng phiên bản Việt hoá)
 echo "Đang cài đặt XrayR..."
-bash <(curl -Ls https://github.com/syxiec/XrayR-release/main/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/qtai2901/XrayR-release/main/install.sh)
 # Kiểm tra xem cài đặt XrayR có thành công không
 if [ ! -f /etc/XrayR/XrayR ]; then
   echo "Lỗi khi cài đặt XrayR."
