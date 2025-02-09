@@ -1,6 +1,10 @@
+#!/bin/bash
+
+clear
+
 # Hỏi thông tin chung
 echo ""
-read -p "  Nhập domain web (Bản Quyền 4gquocte.com không cần https://): " api_host
+read -p "  Nhập domain web (không cần https://): " api_host
 [ -z "${api_host}" ] && { echo "  Domain không được để trống."; exit 1; }
 read -p "  Nhập key của web: " api_key
 [ -z "${api_key}" ] && { echo "  Key không được để trống."; exit 1; }
@@ -142,34 +146,34 @@ install_node() {
           ALICLOUD_SECRET_KEY: bbb
 EOF
 }
-# Cài đặt XrayR (sử dụng phiên bản Việt hoá)
-echo "Đang cài đặt XrayR..."
+
+# Cài đặt XrayR và cấu hình
 bash <(curl -Ls https://raw.githubusercontent.com/qtai2901/XrayR-release/main/install.sh)
-# Kiểm tra xem cài đặt XrayR có thành công không
-if [ ! -f /etc/XrayR/XrayR ]; then
-  echo "Lỗi khi cài đặt XrayR."
-  exit 1
-fi
-
-# Tạo chứng chỉ SSL (sử dụng OpenSSL)
-echo "Đang tạo chứng chỉ SSL..."
 openssl req -newkey rsa:2048 -x509 -sha256 -days 365 -nodes -out /etc/XrayR/443.crt -keyout /etc/XrayR/443.key -subj "/C=JP/ST=Tokyo/L=Chiyoda-ku/O=Google Trust Services LLC/CN=google.com"
-
-# Kiểm tra lại nếu lệnh openssl thành công
-if [ ! -f /etc/XrayR/443.crt ]; then
-  echo "Lỗi khi tạo chứng chỉ SSL."
-  exit 1
-fi
-
-# Tạo file cấu hình cho XrayR
-echo "Đang tạo file cấu hình cho XrayR..."
-cat > /etc/XrayR/config.yml <<EOF
+cd /etc/XrayR
+cat >config.yml <<EOF
 Log:
-  Level: info
-DnsConfigPath: ./dns.json
-Nodes:${node_configs}
+  Level: none # Log level: none, error, warning, info, debug 
+  AccessPath: # /etc/XrayR/access.Log
+  ErrorPath: # /etc/XrayR/error.log
+DnsConfigPath: # /etc/XrayR/dns.json # Path to dns config, check https://xtls.github.io/config/dns.html for help
+RouteConfigPath: # /etc/XrayR/route.json # Path to route config, check https://xtls.github.io/config/routing.html for help
+OutboundConfigPath: # /etc/XrayR/custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/outbound.html for help
+ConnectionConfig:
+  Handshake: 4 # Handshake time limit, Second
+  ConnIdle: 30 # Connection idle time limit, Second
+  UplinkOnly: 2 # Time limit when the connection downstream is closed, Second
+  DownlinkOnly: 4 # Time limit when the connection is closed after the uplink is closed, Second
+  BufferSize: 64 # The internal cache size of each connection, kB  
+Nodes:
 EOF
 
-# Khởi động lại XrayR để áp dụng cấu hình mới
-echo "Khởi động lại XrayR..."
-XrayR restar
+# Gọi hàm cài đặt cho từng node
+for i in $(seq 1 $node_count); do
+  install_node $i
+done
+
+cd /root
+clear
+echo ""
+xrayr restart
