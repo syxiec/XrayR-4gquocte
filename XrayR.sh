@@ -1,225 +1,179 @@
 #!/bin/bash
 
-rm -rf $0
+clear
 
-red='\033[0;31m'
-green='\033[0;32m'
-yellow='\033[0;33m'
-plain='\033[0m'
-
-cur_dir=$(pwd)
-
-# check root
-[[ $EUID -ne 0 ]] && echo -e "  lỗi：${plain} Tập lệnh này phải được chạy với quyền root \n" && exit 1
-
-# check os
-if [[ -f /etc/redhat-release ]]; then
-    release="centos"
-elif cat /etc/issue | grep -Eqi "debian"; then
-    release="debian"
-elif cat /etc/issue | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /etc/issue | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
-elif cat /proc/version | grep -Eqi "debian"; then
-    release="debian"
-elif cat /proc/version | grep -Eqi "ubuntu"; then
-    release="ubuntu"
-elif cat /proc/version | grep -Eqi "centos|red hat|redhat"; then
-    release="centos"
-else
+# Hỏi thông tin chung
 echo ""
-    echo -e "  Phiên bản hệ thống không được phát hiện, vui lòng liên hệ với tác giả kịch bản！${plain}\n" && exit 1
-    echo ""
+read -p "  Nhập domain web (không cần https://): " api_host
+[ -z "${api_host}" ] && { echo "  Domain không được để trống."; exit 1; }
+read -p "  Nhập key của web: " api_key
+[ -z "${api_key}" ] && { echo "  Key không được để trống."; exit 1; }
+
+# Hỏi số lượng node
+read -p "  Nhập số lượng node cần cài (1 hoặc 2, mặc định 1): " node_count
+echo "--------------------------------"
+[ -z "${node_count}" ] && node_count="1"
+if [[ "$node_count" != "1" && "$node_count" != "2" ]]; then
+  echo "  Số lượng node không hợp lệ, chỉ chấp nhận 1 hoặc 2."
+  exit 1
 fi
 
-arch=$(arch)
+# Lấy địa chỉ IP của VPS
+vps_ip=$(hostname -I | awk '{print $1}')
 
-if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
-  arch="64"
-elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
-  arch="arm64-v8a"
-else
-  arch="64"
-  echo -e "  Không phát hiện được giản đồ, hãy sử dụng lược đồ mặc định: ${arch}${plain}"
+# Khai báo mảng lưu thông tin node
+declare -A nodes
+
+# Hỏi thông tin cho từng node
+for i in $(seq 1 $node_count); do
   echo ""
-fi
+  echo "  [1] Vmess"
+  echo "  [2] Vless"
+  echo "  [3] Trojan"
+  read -p "  Chọn loại Node: " NodeType
+  if [ "$NodeType" == "1" ]; then
+      NodeType="V2ray"
+      NodeName="Vmess"
+      EnableVless="false"
+  elif [ "$NodeType" == "2" ]; then
+      NodeType="V2ray"
+      NodeName="Vless"
+      EnableVless="true"
+  elif [ "$NodeType" == "3" ]; then
+      NodeType="Trojan"
+      NodeName="Trojan"
+      EnableVless="false"
+  else
+      echo "  Loại Node không hợp lệ, mặc định là Vmess"
+      NodeType="V2ray"
+      NodeName="Vmess"
+      EnableVless="false"
+  fi
+
+  read -p "  Nhập ID Node: " node_id
+  [ -z "${node_id}" ] && { echo "  ID Node không được để trống."; exit 1; }
+
+  nodes[$i,NodeType]=$NodeType
+  nodes[$i,NodeName]=$NodeName
+  nodes[$i,node_id]=$node_id
+  nodes[$i,CertDomain]=$vps_ip
+  nodes[$i,EnableVless]=$EnableVless
+done
+
+# Hiển thị thông tin đã nhập và yêu cầu xác nhận
+clear
 echo ""
-echo "  phiên bản của hệ điều hành: ${arch}"
+echo "  Thông tin cấu hình"
+echo "--------------------------------"
+echo "  Domain web: https://${api_host}"
+echo "  Key web: ${api_key}"
+echo "  Địa chỉ Node: ${nodes[$i,CertDomain]}"
+for i in $(seq 1 $node_count); do
+  echo ""
+  echo "  Loại Node: ${nodes[$i,NodeName]}"
+  echo "  ID Node: ${nodes[$i,node_id]}"
+done
+echo "--------------------------------"
+read -p "  Bạn có muốn tiếp tục cài đặt không? (y/n, mặc định y): " confirm
+confirm=${confirm:-y}
+if [ "$confirm" != "y" ]; then
+  echo "  Hủy bỏ cài đặt."
+  exit 0
+fi
+
+# Hàm cài đặt
+install_node() {
+  local i=$1
+  local NodeType=${nodes[$i,NodeType]}
+  local node_id=${nodes[$i,node_id]}
+  local CertDomain=${nodes[$i,CertDomain]}
+  local EnableVless=${nodes[$i,EnableVless]}
+
+  cat >>/etc/XrayR/config.yml<<EOF
+  -
+    PanelType: "V2board" # Panel type: SSpanel, V2board, PMpanel, Proxypanel, V2RaySocks
+    ApiConfig:
+      ApiHost: "https://${api_host}"
+      ApiKey: "${api_key}"
+      NodeID: ${node_id}
+      NodeType: ${NodeType} # Node type: V2ray, Shadowsocks, Trojan, Shadowsocks-Plugin
+      Timeout: 30 # Timeout for the api request
+      EnableVless: ${EnableVless} # Enable Vless for V2ray Type
+      EnableXTLS: false # Enable XTLS for V2ray and Trojan
+      SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
+      DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
+      RuleListPath: # /etc/XrayR/rulelist Path to local rulelist file
+    ControllerConfig:
+      ListenIP: 0.0.0.0 # IP address you want to listen
+      SendIP: 0.0.0.0 # IP address you want to send package
+      UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
+      EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
+      DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
+      DisableUploadTraffic: false # Disable Upload Traffic to the panel
+      DisableGetRule: false # Disable Get Rule from the panel
+      DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks
+      DisableSniffing: true # Disable domain sniffing
+      EnableProxyProtocol: false # Only works for WebSocket and TCP
+      AutoSpeedLimitConfig:
+        Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
+        WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.
+        LimitSpeed: 0 # The speedlimit of a limited user (unit: mbps)
+        LimitDuration: 0 # How many minutes will the limiting last (unit: minute)
+      GlobalDeviceLimitConfig:
+        Limit: 0 # The global device limit of a user, 0 means disable
+        RedisAddr: 127.0.0.1:6379 # The redis server address
+        RedisPassword: YOUR PASSWORD # Redis password
+        RedisDB: 0 # Redis DB
+        Timeout: 5 # Timeout for redis request
+        Expiry: 60 # Expiry time (second)
+      EnableFallback: false # Only support for Trojan and Vless
+      FallBackConfigs:  # Support multiple fallbacks
+        -
+          SNI: # TLS SNI(Server Name Indication), Empty for any
+          Alpn: # Alpn, Empty for any
+          Path: # HTTP PATH, Empty for any
+          Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
+          ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
+      CertConfig:
+        CertMode: file # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
+        CertDomain: "${CertDomain}" # Domain to cert
+        CertFile: /etc/XrayR/443.crt # Provided if the CertMode is file
+        KeyFile: /etc/XrayR/443.key
+        Provider: alidns # DNS cert provider, Get the full support list here: https://go-acme.github.io/lego/dns/
+        Email: test@me.com
+        DNSEnv: # DNS ENV option used by DNS provider
+          ALICLOUD_ACCESS_KEY: aaa
+          ALICLOUD_SECRET_KEY: bbb
+EOF
+}
+
+# Cài đặt XrayR và cấu hình
+bash <(curl -Ls https://raw.githubusercontent.com/qtai2901/XrayR-release/main/install.sh)
+openssl req -newkey rsa:2048 -x509 -sha256 -days 365 -nodes -out /etc/XrayR/443.crt -keyout /etc/XrayR/443.key -subj "/C=JP/ST=Tokyo/L=Chiyoda-ku/O=Google Trust Services LLC/CN=google.com"
+cd /etc/XrayR
+cat >config.yml <<EOF
+Log:
+  Level: none # Log level: none, error, warning, info, debug 
+  AccessPath: # /etc/XrayR/access.Log
+  ErrorPath: # /etc/XrayR/error.log
+DnsConfigPath: # /etc/XrayR/dns.json # Path to dns config, check https://xtls.github.io/config/dns.html for help
+RouteConfigPath: # /etc/XrayR/route.json # Path to route config, check https://xtls.github.io/config/routing.html for help
+OutboundConfigPath: # /etc/XrayR/custom_outbound.json # Path to custom outbound config, check https://xtls.github.io/config/outbound.html for help
+ConnectionConfig:
+  Handshake: 4 # Handshake time limit, Second
+  ConnIdle: 30 # Connection idle time limit, Second
+  UplinkOnly: 2 # Time limit when the connection downstream is closed, Second
+  DownlinkOnly: 4 # Time limit when the connection is closed after the uplink is closed, Second
+  BufferSize: 64 # The internal cache size of each connection, kB  
+Nodes:
+EOF
+
+# Gọi hàm cài đặt cho từng node
+for i in $(seq 1 $node_count); do
+  install_node $i
+done
+
+cd /root
+clear
 echo ""
-
-if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
-    echo ""
-    echo "  Phần mềm này không hỗ trợ hệ thống 32-bit (x86), vui lòng sử dụng hệ thống 64-bit (x86_64), nếu phát hiện sai, vui lòng liên hệ với tác giả"
-    echo ""
-    exit 2
-fi
-
-os_version=""
-
-# phiên bản của hệ điều hành
-if [[ -f /etc/os-release ]]; then
-    os_version=$(awk -F'[= ."]' '/VERSION_ID/{print $3}' /etc/os-release)
-fi
-if [[ -z "$os_version" && -f /etc/lsb-release ]]; then
-    os_version=$(awk -F'[= ."]+' '/DISTRIB_RELEASE/{print $2}' /etc/lsb-release)
-fi
-
-if [[ x"${release}" == x"centos" ]]; then
-    if [[ ${os_version} -le 6 ]]; then
-    echo ""
-        echo -e "  Vui lòng sử dụng CentOS 7 trở lên！${plain}\n" && exit 1
-    fi
-elif [[ x"${release}" == x"ubuntu" ]]; then
-    if [[ ${os_version} -lt 16 ]]; then
-    echo ""
-        echo -e "  Vui lòng sử dụng Ubuntu 16 trở lên！${plain}\n" && exit 1
-    fi
-elif [[ x"${release}" == x"debian" ]]; then
-    if [[ ${os_version} -lt 8 ]]; then
-    echo ""
-        echo -e "  Vui lòng sử dụng Debian 8 trở lên！${plain}\n" && exit 1
-    fi
-fi
-
-install_base() {
-    if [[ x"${release}" == x"centos" ]]; then
-        yum install epel-release -y
-        yum install wget curl unzip tar crontabs socat -y
-    else
-        apt update -y
-        apt install wget curl unzip tar cron socat -y
-    fi
-}
-
-# 0: đang chạy, 1: không chạy, 2: chưa cài đặt
-check_status() {
-    if [[ ! -f /etc/systemd/system/XrayR.service ]]; then
-        return 2
-    fi
-    temp=$(systemctl status XrayR | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
-    if [[ x"${temp}" == x"running" ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-install_acme() {
-    curl https://get.acme.sh | sh
-}
-
-install_XrayR() {
-    if [[ -e /usr/local/XrayR/ ]]; then
-        rm /usr/local/XrayR/ -rf
-    fi
-
-    mkdir /usr/local/XrayR/ -p
-	cd /usr/local/XrayR/
-    
-    if  [ $# == 0 ] ;then
-        last_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ ! -n "$last_version" ]]; then
-	echo ""
-            echo -e "  Phát hiện phiên bản XrayR không thành công, có thể vượt quá giới hạn GIthub API, vui lòng thử lại sau hoặc chỉ định cài đặt phiên bản XrayR theo cách thủ công${plain}"
-	    echo ""
-            exit 1
-        fi
-	echo ""
-        echo -e "  Phiên bản mới nhất của XrayR đã được phát hiện：${last_version}，Bắt đầu cài đặt"
-	echo ""
-        wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip
-        if [[ $? -ne 0 ]]; then
-	echo ""
-            echo -e "  Tải xuống XrayR thất bại, hãy chắc chắn rằng máy chủ của bạn có thể tải về các tập tin Github${plain}"
-	    echo ""
-            exit 1
-        fi
-    else
-        last_version=$1
-        url="https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip"
-	echo ""
-        echo -e "  Bắt đầu cài đặt XrayR v$1"
-	echo ""
-        wget -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip ${url}
-        if [[ $? -ne 0 ]]; then
-	echo ""
-            echo -e "  Tải xuống XrayR v$1 Thất bại, hãy chắc chắn rằng phiên bản này tồn tại"
-	    echo ""
-            exit 1
-        fi
-    fi
-
-    unzip XrayR-linux.zip
-    rm XrayR-linux.zip -f
-    chmod +x XrayR
-    mkdir /etc/XrayR/ -p
-    rm /etc/systemd/system/XrayR.service -f
-    file="https://raw.githubusercontent.com/syxiec/XrayR-release/main/XrayR.service"
-    wget -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
-    #cp -f XrayR.service /etc/systemd/system/
-    systemctl daemon-reload
-    systemctl stop XrayR
-    systemctl enable XrayR
-    echo ""
-    echo -e "  XrayR ${last_version} Quá trình cài đặt hoàn tất, nó đã được bật để khởi động tự động"
-    cp geoip.dat /etc/XrayR/
-    cp geosite.dat /etc/XrayR/ 
-
-    if [[ ! -f /etc/XrayR/config.yml ]]; then
-        cp config.yml /etc/XrayR/
-        echo -e ""
-        echo -e "  Cài đặt mới, vui lòng vào zalo：https://zalo.me/g/apibgy791，Định cấu hình nội dung cần thiết"
-	echo ""
-    else
-        systemctl start XrayR
-        sleep 2
-        check_status
-        echo -e ""
-        if [[ $? == 0 ]]; then
-            echo -e "  XrayR đã khởi động lại thành công${plain}"
-        else
-            echo -e "  XrayR không khởi động được, vui lòng sử dụng XrayR log để kiểm tra thông tin nhật ký sau này, "
-	    echo "  nếu không khởi động được, định dạng cấu hình có thể đã bị thay đổi, vui lòng liên hệ：https://zalo.me/0981301808 để được hộ trợ"
-        fi
-    fi
-
-    if [[ ! -f /etc/XrayR/dns.json ]]; then
-        cp dns.json /etc/XrayR/
-    fi
-    if [[ ! -f /etc/XrayR/route.json ]]; then
-        cp route.json /etc/XrayR/
-    fi
-    if [[ ! -f /etc/XrayR/custom_outbound.json ]]; then
-        cp custom_outbound.json /etc/XrayR/
-    fi
-    curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/syxiec/XrayR-4gquocte.com/main/XrayR.sh
-    chmod +x /usr/bin/XrayR
-    ln -s /usr/bin/XrayR /usr/bin/xrayr # chữ thường tương thích
-    chmod +x /usr/bin/xrayr
- 
-    echo -e ""
-    echo "------------[4G QUỐC TẾ VIỆT HÓA]------------"
-    echo "  Cách sử dụng tập lệnh quản lý XrayR"
-    echo "------------------------------------------"
-    echo "  XrayR                    - Hiển thị menu quản lý (nhiều chức năng hơn)"
-    echo "  XrayR start              - Khởi động XrayR"
-    echo "  XrayR stop               - Dừng XrayR"
-    echo "  XrayR restart            - Khởi động lại XrayR"
-    echo "  XrayR status             - Xem trạng thái XrayR"
-    echo "  XrayR enable             - Bật tự động khởi động XrayR"
-    echo "  XrayR disable            - Hủy tự động khởi động XrayR"
-    echo "  XrayR log                - Xem nhật ký XrayR"
-    echo "  XrayR update             - Cập nhật XrayR"
-    echo "  XrayR update x.x.x       - Cập nhật phiên bản XrayR"
-    echo "  XrayR config             - hiển thị nội dung tệp cấu hình"
-    echo "  XrayR install            - Cài đặt XrayR"
-    echo "  XrayR uninstall          - Gỡ cài đặt XrayR"
-    echo "  XrayR version            - Xem phiên bản XrayR"
-    echo "------------------------------------------"
-}
-
-echo -e "  bắt đầu cài đặt ${plain}"
-install_base
-install_acme
-install_XrayR $1
+xrayr restart
