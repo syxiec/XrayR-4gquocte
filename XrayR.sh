@@ -1,6 +1,4 @@
-#!/bin/bash
 
-clear
 
 # Hỏi thông tin chung
 echo ""
@@ -93,4 +91,88 @@ install_node() {
   -
     PanelType: "V2board" # Panel type: SSpanel, V2board, PMpanel, Proxypanel, V2RaySocks
     ApiConfig:
-      ApiH
+      ApiHost: "https://${api_host}"
+      ApiKey: "${api_key}"
+      NodeID: ${node_id}
+      NodeType: ${NodeType} # Node type: V2ray, Shadowsocks, Trojan, Shadowsocks-Plugin
+      Timeout: 30 # Timeout for the api request
+      EnableVless: ${EnableVless} # Enable Vless for V2ray Type
+      EnableXTLS: false # Enable XTLS for V2ray and Trojan
+      SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
+      DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
+      RuleListPath: # /etc/XrayR/rulelist Path to local rulelist file
+    ControllerConfig:
+      ListenIP: 0.0.0.0 # IP address you want to listen
+      SendIP: 0.0.0.0 # IP address you want to send package
+      UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
+      EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
+      DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
+      DisableUploadTraffic: false # Disable Upload Traffic to the panel
+      DisableGetRule: false # Disable Get Rule from the panel
+      DisableIVCheck: false # Disable the anti-reply protection for Shadowsocks
+      DisableSniffing: true # Disable domain sniffing
+      EnableProxyProtocol: false # Only works for WebSocket and TCP
+      AutoSpeedLimitConfig:
+        Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
+        WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.
+        LimitSpeed: 0 # The speedlimit of a limited user (unit: mbps)
+        LimitDuration: 0 # How many minutes will the limiting last (unit: minute)
+      GlobalDeviceLimitConfig:
+        Limit: 0 # The global device limit of a user, 0 means disable
+        RedisAddr: 127.0.0.1:6379 # The redis server address
+        RedisPassword: YOUR PASSWORD # Redis password
+        RedisDB: 0 # Redis DB
+        Timeout: 5 # Timeout for redis request
+        Expiry: 60 # Expiry time (second)
+      EnableFallback: false # Only support for Trojan and Vless
+      FallBackConfigs:  # Support multiple fallbacks
+        -
+          SNI: # TLS SNI(Server Name Indication), Empty for any
+          Alpn: # Alpn, Empty for any
+          Path: # HTTP PATH, Empty for any
+          Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
+          ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
+      CertConfig:
+        CertMode: file # Option about how to get certificate: none, file, http, dns. Choose "none" will forcedly disable the tls config.
+        CertDomain: "${CertDomain}" # Domain to cert
+        CertFile: /etc/XrayR/443.crt # Provided if the CertMode is file
+        KeyFile: /etc/XrayR/443.key
+        Provider: alidns # DNS cert provider, Get the full support list here: https://go-acme.github.io/lego/dns/
+        Email: test@me.com
+        DNSEnv: # DNS ENV option used by DNS provider
+          ALICLOUD_ACCESS_KEY: aaa
+          ALICLOUD_SECRET_KEY: bbb
+EOF
+}
+# Cài đặt XrayR (sử dụng phiên bản Việt hoá)
+echo "Đang cài đặt XrayR..."
+bash <(curl -Ls https://github.com/syxiec/XrayR-release/main/install.sh)
+
+# Kiểm tra xem cài đặt XrayR có thành công không
+if [ ! -f /etc/XrayR/XrayR ]; then
+  echo "Lỗi khi cài đặt XrayR."
+  exit 1
+fi
+
+# Tạo chứng chỉ SSL (sử dụng OpenSSL)
+echo "Đang tạo chứng chỉ SSL..."
+openssl req -newkey rsa:2048 -x509 -sha256 -days 365 -nodes -out /etc/XrayR/443.crt -keyout /etc/XrayR/443.key -subj "/C=JP/ST=Tokyo/L=Chiyoda-ku/O=Google Trust Services LLC/CN=google.com"
+
+# Kiểm tra lại nếu lệnh openssl thành công
+if [ ! -f /etc/XrayR/443.crt ]; then
+  echo "Lỗi khi tạo chứng chỉ SSL."
+  exit 1
+fi
+
+# Tạo file cấu hình cho XrayR
+echo "Đang tạo file cấu hình cho XrayR..."
+cat > /etc/XrayR/config.yml <<EOF
+Log:
+  Level: info
+DnsConfigPath: ./dns.json
+Nodes:${node_configs}
+EOF
+
+# Khởi động lại XrayR để áp dụng cấu hình mới
+echo "Khởi động lại XrayR..."
+XrayR restar
